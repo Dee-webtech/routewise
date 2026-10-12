@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RouteWise</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    :root {
+      --ink: #16202a; --muted: #5b6672; --line: #dfe3e8; --card: #fff; --bg: #f6f7f9;
+      --brand: #1d4ed8; --danger: #b42318; --danger-bg: #fef3f2;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body {
+      margin: 0; height: 100vh; display: flex; flex-direction: column;
+      font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: var(--ink); background: var(--bg);
+    }
+    .top { display: flex; align-items: baseline; gap: 12px; padding: 12px 20px; background: #0f172a; color: #fff; }
+    .top h1 { margin: 0; font-size: 18px; }
+    .top span { color: #cbd5e1; font-size: 13px; }
+    .app { flex: 1; min-height: 0; display: grid; grid-template-columns: 380px 1fr; }
+    .panel { overflow: auto; padding: 16px; background: var(--card); border-right: 1px solid var(--line); }
+    #map { height: 100%; min-height: 320px; }
+    .field { display: block; margin: 0 0 14px; }
+    .field > span { display: block; margin-bottom: 4px; font-weight: 600; }
+    input, select {
+      width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px;
+      font: inherit; color: inherit; background: #fff;
+    }
+    button {
+      padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px;
+      font: inherit; color: inherit; background: #fff; cursor: pointer;
+    }
+    button:hover { background: #f1f5f9; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    button[aria-pressed="true"] { background: #e8efff; border-color: var(--brand); color: var(--brand); font-weight: 600; }
+    button.primary { flex: 1; background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+    button.primary:hover { background: #1e40af; }
+    input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+    .row { display: flex; gap: 8px; }
+    .row button { flex: 1; }
+    .hint { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+    .status { min-height: 1.4em; margin: 12px 0; color: var(--muted); }
+    .alert {
+      margin: 12px 0; padding: 10px 12px; border: 1px solid #fecdca; border-radius: 8px;
+      background: var(--danger-bg); color: var(--danger); overflow-wrap: anywhere;
+    }
+    .results { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+    .results h2 { margin: 0 0 8px; font-size: 16px; }
+    .summary { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0 0 12px; }
+    .summary dt { color: var(--muted); }
+    .summary dd { margin: 0; font-weight: 600; text-align: right; }
+    .routes { margin: 0; padding: 0; list-style: none; }
+    .routes li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+    .swatch { display: inline-block; width: 12px; height: 12px; margin-right: 8px; border-radius: 50%; vertical-align: -1px; }
+    .order { display: block; margin-top: 2px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+    .num-icon span, .depot-icon span {
+      display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
+      color: #fff; font: 700 12px system-ui, sans-serif; border: 2px solid #fff;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+    }
+    .num-icon span { border-radius: 50%; }
+    .depot-icon span { border-radius: 6px; background: #0f172a; }
+    @media (max-width: 800px) {
+      body { height: auto; min-height: 100vh; }
+      .app { grid-template-columns: 1fr; grid-template-rows: 55vh auto; }
+      #map { order: -1; }
+      .panel { border-right: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <h1>RouteWise</h1>
+    <span>Route optimisation for small delivery fleets</span>
+  </header>
+
+  <main class="app">
+    <aside class="panel">
+      <label class="field">
+        <span>API key</span>
+        <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="rw_...">
+      </label>
+
+      <div class="field">
+        <span>Map</span>
+        <div class="row">
+          <button type="button" id="modeDepot" aria-pressed="true">Set depot</button>
+          <button type="button" id="modeStops" aria-pressed="false">Add stops</button>
+        </div>
+        <p class="hint">Click the map to place points. Click a stop to remove it. The order you add stops in is your original order.</p>
+        <p class="hint" id="counts"></p>
+      </div>
+
+      <label class="field">
+        <span>Vehicles</span>
+        <input id="vehicles" type="number" min="1" step="1" value="1">
+      </label>
+
+      <label class="field">
+        <span>Distance mode</span>
+        <select id="mode">
+          <option value="haversine">Straight-line (haversine)</option>
+          <option value="graph">Road network (uploaded graph)</option>
+        </select>
+      </label>
+
+      <label class="field" id="graphField" hidden>
+        <span>Graph ID</span>
+        <input id="graphId" type="text" autocomplete="off" spellcheck="false">
+      </label>
+
+      <div class="row">
+        <button type="button" id="optimise" class="primary">Optimise</button>
+        <button type="button" id="clear">Clear</button>
+      </div>
+
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <div id="error" class="alert" role="alert" hidden></div>
+
+      <section id="results" class="results" hidden>
+        <h2>Result</h2>
+        <dl class="summary">
+          <dt>Total distance</dt><dd id="sumTotal"></dd>
+          <dt>Original order</dt><dd id="sumBase"></dd>
+          <dt>Difference</dt><dd id="sumSaved"></dd>
+          <dt>Solver</dt><dd id="sumSolver"></dd>
+        </dl>
+        <ol id="routes" class="routes"></ol>
+      </section>
+    </aside>
+
+    <section id="map" aria-label="Map"></section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    (() => {
+      "use strict";
+
+      const COLORS = ["#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4",
+        "#008080", "#9a6324", "#800000", "#808000", "#000075"];
+      const POLL_LIMIT_MS = 120000;
+      const $ = (id) => document.getElementById(id);
+
+      const map = L.map("map").setView([6.5244, 3.3792], 12);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors",
+      }).addTo(map);
+      const stopLayer = L.layerGroup().addTo(map);
+      const routeLayer = L.layerGroup().addTo(map);
+
+      const state = { depot: null, depotMarker: null, stops: [], nextId: 1, mode: "depot", busy: false };
+      let lastKey = { body: "", key: "" };
+
+      function node(tag, text) {
+        const el = document.createElement(tag);
+        if (text !== undefined) el.textContent = text;
+        return el;
+      }
+
+      function newKey() {
+        if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+        return Date.now() + "-" + Math.random().toString(16).slice(2);
+      }
+
+      function keyFor(body) {
+        const serial = JSON.stringify(body);
+        if (lastKey.body !== serial) lastKey = { body: serial, key: newKey() };
+        return lastKey.key;
+      }
+
+      function setStatus(text) { $("status").textContent = text; }
+      function hideError() { $("error").hidden = true; }
+      function showError(text) {
+        $("error").textContent = text;
+        $("error").hidden = false;
+        setStatus("");
+      }
+
+      function setBusy(flag) {
+        state.busy = flag;
+        $("optimise").disabled = flag;
+        $("clear").disabled = flag;
+      }
+
+      function setMode(mode) {
+        state.mode = mode;
+        $("modeDepot").setAttribute("aria-pressed", String(mode === "depot"));
+        $("modeStops").setAttribute("aria-pressed", String(mode === "stops"));
+      }
+
+      function updateCounts() {
+        $("counts").textContent =
+          "Depot: " + (state.depot ? "set" : "not set") + " | Stops: " + state.stops.length;
+      }
+
+      function clearResult() {
+        routeLayer.clearLayers();
+        if (!map.hasLayer(stopLayer)) stopLayer.addTo(map);
+        $("results").hidden = true;
+      }
+
+      function setDepot(lat, lng) {
+        state.depot = { lat, lng };
+        if (state.depotMarker) {
+          state.depotMarker.setLatLng([lat, lng]);
+          return;
+        }
+        const icon = L.divIcon({
+          className: "depot-icon", html: "<span>D</span>", iconSize: [28, 28], iconAnchor: [14, 14],
+        });
+        state.depotMarker = L.marker([lat, lng], { icon, keyboard: false })
+          .bindTooltip("Depot")
+          .addTo(map);
+      }
+
+      function addStop(lat, lng) {
+        const stop = { id: "S" + state.nextId++, lat, lng };
+        const marker = L.circleMarker([lat, lng], {
+          radius: 7, color: "#1e3a8a", weight: 2, fillColor: "#3b82f6",
+          fillOpacity: 0.9, bubblingMouseEvents: false,
+        });
+        marker.bindTooltip(node("span", stop.id));
+        marker.on("click", () => {
+          if (state.busy) return;
+          stopLayer.removeLayer(marker);
+          state.stops = state.stops.filter((s) => s !== stop);
+          clearResult();
+          updateCounts();
+        });
+        stopLayer.addLayer(marker);
+        state.stops.push(stop);
+      }
+
+      function clearAll() {
+        if (state.depotMarker) map.removeLayer(state.depotMarker);
+        state.depot = null;
+        state.depotMarker = null;
+        state.stops = [];
+        state.nextId = 1;
+        stopLayer.clearLayers();
+        clearResult();
+        setMode("depot");
+        updateCounts();
+        hideError();
+        setStatus("");
+      }
+
+      async function api(method, path, key, body, extra) {
+        let res;
+        try {
+          res = await fetch(path, {
+            method,
+            headers: Object.assign(
+              { "X-API-Key": key },
+              body ? { "Content-Type": "application/json" } : {},
+              extra || {}
+            ),
+            body: body ? JSON.stringify(body) : undefined,
+          });
+        } catch {
+          throw new Error("Could not reach the server. Check that it is running.");
+        }
+        let data = null;
+        try { data = await res.json(); } catch { /* body was not JSON */ }
+        if (!res.ok) {
+          const err = data && data.error;
+          const message = err ? err.message : "Request failed (HTTP " + res.status + ").";
+          throw new Error(err && err.request_id ? message + " (request " + err.request_id + ")" : message);
+        }
+        return data;
+      }
+
+      async function waitForJob(key, job) {
+        const deadline = Date.now() + POLL_LIMIT_MS;
+        while (job.status === "queued" || job.status === "running") {
+          if (Date.now() > deadline) {
+            throw new Error("Timed out waiting for the job. Try again shortly; it may still finish.");
+          }
+          setStatus("Job " + job.status + "...");
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          job = await api("GET", "/api/v1/jobs/" + encodeURIComponent(job.id), key);
+        }
+        return job;
+      }
+
+      function numberIcon(n, color) {
+        const span = '<span style="background:' + color + '">' + Number(n) + "</span>";
+        return L.divIcon({ className: "num-icon", html: span, iconSize: [26, 26], iconAnchor: [13, 13] });
+      }
+
+      function routeItem(route, color) {
+        const li = node("li");
+        const swatch = node("span");
+        swatch.className = "swatch";
+        swatch.style.background = color;
+        li.appendChild(swatch);
+        li.appendChild(node("strong", "Vehicle " + route.vehicle));
+        li.appendChild(node("span", ": " + route.stops.length + " stops, " + route.distance_km.toFixed(2) + " km"));
+        const order = node("span", route.stops.map((s) => s.id).join(" \u2192 "));
+        order.className = "order";
+        li.appendChild(order);
+        return li;
+      }
+
+      function renderResult(result) {
+        routeLayer.clearLayers();
+        stopLayer.remove();
+        const depot = [result.depot.lat, result.depot.lng];
+        const bounds = L.latLngBounds([depot]);
+        const list = $("routes");
+        list.replaceChildren();
+
+        result.routes.forEach((route, i) => {
+          const color = COLORS[i % COLORS.length];
+          const points = [depot].concat(route.stops.map((s) => [s.lat, s.lng]), [depot]);
+          L.polyline(points, { color, weight: 4, opacity: 0.85 }).addTo(routeLayer);
+          route.stops.forEach((s) => {
+            L.marker([s.lat, s.lng], { icon: numberIcon(s.sequence, color), keyboard: false })
+              .bindTooltip(node("span", String(s.id)))
+              .addTo(routeLayer);
+            bounds.extend([s.lat, s.lng]);
+          });
+          list.appendChild(routeItem(route, color));
+        });
+
+        const pct = result.saved_percent;
+        $("sumTotal").textContent = result.total_distance_km.toFixed(2) + " km";
+        $("sumBase").textContent = result.baseline_distance_km.toFixed(2) + " km";
+        $("sumSaved").textContent = pct >= 0
+          ? pct.toFixed(1) + "% shorter (" + result.saved_km.toFixed(2) + " km)"
+          : Math.abs(pct).toFixed(1) + "% longer than your order";
+        $("sumSolver").textContent = result.accelerator;
+        $("results").hidden = false;
+        map.fitBounds(bounds, { padding: [40, 40] });
+      }
+
+      async function optimise() {
+        hideError();
+        const key = $("apiKey").value.trim();
+        const vehicles = Number($("vehicles").value);
+        const mode = $("mode").value;
+        const graphId = $("graphId").value.trim();
+        if (!key) return showError("Enter your API key first.");
+        if (!state.depot) return showError("Click the map to set a depot.");
+        if (state.stops.length === 0) return showError("Add at least one stop.");
+        if (!Number.isInteger(vehicles) || vehicles < 1) {
+          return showError("Vehicles must be a whole number of at least 1.");
+        }
+        if (mode === "graph" && !graphId) return showError("Enter a graph ID for road-network mode.");
+
+        const body = {
+          depot: state.depot,
+          stops: state.stops.map((s) => ({ id: s.id, lat: s.lat, lng: s.lng })),
+          num_vehicles: vehicles,
+          distance_mode: mode,
+        };
+        if (mode === "graph") body.graph_id = graphId;
+
+        setBusy(true);
+        setStatus("Optimising...");
+        try {
+          let job = await api("POST", "/api/v1/optimize", key, body, { "Idempotency-Key": keyFor(body) });
+          job = await waitForJob(key, job);
+          if (job.status === "failed") throw new Error(job.error || "The optimisation failed.");
+          renderResult(job.result);
+          setStatus("Done.");
+        } catch (err) {
+          showError(err.message);
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      map.on("click", (event) => {
+        if (state.busy) return;
+        const { lat, lng } = event.latlng.wrap();
+        const point = [Number(lat.toFixed(6)), Number(lng.toFixed(6))];
+        clearResult();
+        if (state.mode === "depot") {
+          setDepot(point[0], point[1]);
+          setMode("stops");
+        } else {
+          addStop(point[0], point[1]);
+        }
+        updateCounts();
+      });
+
+      $("modeDepot").addEventListener("click", () => setMode("depot"));
+      $("modeStops").addEventListener("click", () => setMode("stops"));
+      $("optimise").addEventListener("click", optimise);
+      $("clear").addEventListener("click", clearAll);
+      $("mode").addEventListener("change", () => { $("graphField").hidden = $("mode").value !== "graph"; });
+      $("apiKey").addEventListener("input", () => {
+        try { sessionStorage.setItem("routewise_key", $("apiKey").value); } catch { /* storage unavailable */ }
+      });
+
+      try { $("apiKey").value = sessionStorage.getItem("routewise_key") || ""; } catch { /* storage unavailable */ }
+      updateCounts();
+    })();
+  </script>
+</body>
+</html>
