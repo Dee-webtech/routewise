@@ -63,7 +63,7 @@ class GraphCache:
                 self._items.popitem(last=False)
 
 
-def _load_graph(repo: Repository, cache: GraphCache, tenant_id: str, graph_id: str) -> Graph:
+def load_graph(repo: Repository, cache: GraphCache, tenant_id: str, graph_id: str) -> Graph:
     key = (tenant_id, graph_id)
     cached = cache.get(key)
     if cached is not None:
@@ -92,7 +92,7 @@ def solve_request(
     stops = [(s.lat, s.lng) for s in request.stops]
 
     if request.distance_mode == "graph":
-        graph = _load_graph(repo, cache, tenant_id, request.graph_id or "")
+        graph = load_graph(repo, cache, tenant_id, request.graph_id or "")
         nodes = [graph.nearest_node(*depot)] + [graph.nearest_node(*p) for p in stops]
         matrix = graph.cost_matrix(nodes)
     else:
