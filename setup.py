@@ -1,3 +1,5 @@
+import os
+
 from setuptools import setup
 from setuptools.command.build_ext import build_ext
 
@@ -19,6 +21,8 @@ class OptionalBuildExt(build_ext):
 
 
 def get_extensions():
+    if os.environ.get("ROUTEWISE_SKIP_CPP"):
+        return []
     try:
         from pybind11.setup_helpers import Pybind11Extension
     except ImportError:
