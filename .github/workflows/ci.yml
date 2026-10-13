@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [develop, testing, staging, main]
+  pull_request:
+    branches: [develop, testing, staging, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install ruff
+      - run: python -m ruff check .
+      - run: python -m ruff format --check .
+
+  test:
+    name: Test py${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    env:
+      ROUTEWISE_SKIP_CPP: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest
+
+  cpp:
+    name: C++ extension and benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip setuptools wheel pybind11
+      - run: python -m pip install -e ".[dev]"
+      - run: python setup.py build_ext --inplace
+      - name: Confirm the extension is active
+        run: python -c "from routewise import _fast; assert _fast.HAS_CPP, 'extension not built'; print('C++ built')"
+      - run: python -m pytest -rs
+      - run: python benchmarks/bench_solver.py --out benchmarks/results/bench.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmarks/results/bench.md

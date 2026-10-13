@@ -1,5 +1,8 @@
 import pytest
+from fastapi.testclient import TestClient
 
+from routewise.api import create_app
+from routewise.auth import create_tenant
 from routewise.config import Settings
 from routewise.db import Repository
 
@@ -20,3 +23,29 @@ def repo(settings):
     repository = Repository(settings.db_path)
     repository.init_schema()
     return repository
+
+
+@pytest.fixture()
+def app(settings):
+    return create_app(settings)
+
+
+@pytest.fixture()
+def client(app):
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def _account(repo, name):
+    tenant, key = create_tenant(repo, name)
+    return {"id": tenant.id, "key": key, "headers": {"X-API-Key": key}}
+
+
+@pytest.fixture()
+def tenant_a(repo):
+    return _account(repo, "Tenant A")
+
+
+@pytest.fixture()
+def tenant_b(repo):
+    return _account(repo, "Tenant B")
