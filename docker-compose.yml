@@ -1,0 +1,13 @@
+services:
+  routewise:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      ROUTEWISE_DB_PATH: /data/routewise.db
+    volumes:
+      - routewise-data:/data
+    restart: unless-stopped
+
+volumes:
+  routewise-data:
