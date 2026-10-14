@@ -4,6 +4,8 @@
 
 Multi-tenant route optimisation API. A business submits a depot and a list of stops and gets back the best order of stops per vehicle, the total distance, and how much shorter that is than its original order.
 
+![RouteWise optimising a multi-vehicle route](docs/images/routewise-ui.png)
+
 ## Problem and audience
 
 Small delivery businesses (food vendors, couriers, pharmacies) often plan multi-stop routes by hand because commercial route-optimisation APIs are expensive. RouteWise is a small, self-hostable alternative. Its algorithms are written by hand, with no routing libraries.
